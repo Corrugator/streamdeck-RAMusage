@@ -43,9 +43,9 @@
   "CodePath": "bin/plugin.js",
   "Description": "Shows macOS memory and CPU usage on Stream Deck keys as percentages that turn green, yellow, or red, with optional GB / load lines and history graphs.",
   "Icon": "imgs/plugin/icon",
-  "SDKVersion": 2,
+  "SDKVersion": 3,
   "Software": {
-    "MinimumVersion": "6.5"
+    "MinimumVersion": "6.9"
   },
   "OS": [
     {
