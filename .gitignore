@@ -4,3 +4,5 @@ node_modules/
 *.sdPlugin/bin/*.map
 .claude/
 dist/
+deployment/
+marketplace/
