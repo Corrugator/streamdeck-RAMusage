@@ -1,0 +1,59 @@
+{
+  "$schema": "https://schemas.elgato.com/streamdeck/plugins/manifest.json",
+  "Name": "System Usage",
+  "Version": "1.0.0.0",
+  "Author": "Corrugator",
+  "UUID": "com.corrugator.systemusage",
+  "Actions": [
+    {
+      "Name": "Memory",
+      "UUID": "com.corrugator.systemusage.memory",
+      "Icon": "imgs/actions/memory/icon",
+      "Tooltip": "Shows macOS memory pressure or used/total RAM as a colored percentage.",
+      "Controllers": [
+        "Keypad"
+      ],
+      "States": [
+        {
+          "Image": "imgs/actions/memory/key",
+          "TitleAlignment": "bottom"
+        }
+      ],
+      "PropertyInspectorPath": "ui/memory-pi.html"
+    },
+    {
+      "Name": "CPU",
+      "UUID": "com.corrugator.systemusage.cpu",
+      "Icon": "imgs/actions/cpu/icon",
+      "Tooltip": "Shows macOS CPU usage as a colored percentage.",
+      "Controllers": [
+        "Keypad"
+      ],
+      "States": [
+        {
+          "Image": "imgs/actions/cpu/key",
+          "TitleAlignment": "bottom"
+        }
+      ],
+      "PropertyInspectorPath": "ui/cpu-pi.html"
+    }
+  ],
+  "Category": "System Usage",
+  "CategoryIcon": "imgs/plugin/category",
+  "CodePath": "bin/plugin.js",
+  "Description": "Shows macOS memory and CPU usage on Stream Deck keys as percentages that turn green, yellow, or red, with optional GB / load lines and history graphs.",
+  "Icon": "imgs/plugin/icon",
+  "SDKVersion": 2,
+  "Software": {
+    "MinimumVersion": "6.5"
+  },
+  "OS": [
+    {
+      "Platform": "mac",
+      "MinimumVersion": "12.0"
+    }
+  ],
+  "Nodejs": {
+    "Version": "20"
+  }
+}

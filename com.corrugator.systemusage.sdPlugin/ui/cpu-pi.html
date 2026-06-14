@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>CPU Settings</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 12px;
+      color: #ccc;
+      background: #2d2d2d;
+      margin: 0;
+      padding: 12px;
+    }
+    .sdpi-wrapper { display: flex; flex-direction: column; gap: 9px; }
+    .sdpi-item { display: flex; align-items: center; justify-content: space-between; }
+    .sdpi-item-label { flex: 0 0 auto; margin-right: 12px; color: #969696; font-size: 11px; }
+    .sdpi-item-value { flex: 1; display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+    input[type="color"] { width: 40px; height: 28px; border: 1px solid #555; border-radius: 4px; background: none; cursor: pointer; padding: 0; }
+    input[type="number"], input[type="text"], select {
+      height: 26px; box-sizing: border-box; background: #3d3d3d; color: #eee;
+      border: 1px solid #555; border-radius: 4px; padding: 0 6px; font-size: 12px;
+    }
+    input[type="number"] { width: 64px; }
+    input[type="text"] { width: 90px; }
+    select { width: 150px; }
+    input[type="checkbox"] { width: 16px; height: 16px; accent-color: #30D158; cursor: pointer; }
+    .section-title { font-size: 11px; color: #969696; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #444; padding-bottom: 4px; margin: 6px 0 2px; }
+    .hint { font-size: 10px; color: #777; line-height: 1.4; }
+  </style>
+</head>
+<body>
+  <div class="sdpi-wrapper">
+    <div class="section-title">Display</div>
+
+    <div class="sdpi-item">
+      <div class="sdpi-item-label">Load average line</div>
+      <div class="sdpi-item-value">
+        <input type="checkbox" id="showLoad" checked />
+      </div>
+    </div>
+
+    <div class="sdpi-item">
+      <div class="sdpi-item-label">Graph</div>
+      <div class="sdpi-item-value">
+        <select id="graphStyle">
+          <option value="off">Off</option>
+          <option value="sparkline" selected>Sparkline (small)</option>
+          <option value="bars-mini">Mini bars (small)</option>
+          <option value="area">Area (with ring)</option>
+          <option value="line">Line graph (large)</option>
+          <option value="bars">Bar graph (large)</option>
+          <option value="background">Background graph</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="sdpi-item">
+      <div class="sdpi-item-label">Label</div>
+      <div class="sdpi-item-value">
+        <input type="text" id="label" maxlength="6" value="CPU" />
+      </div>
+    </div>
+
+    <div class="sdpi-item">
+      <div class="sdpi-item-label">Refresh (sec)</div>
+      <div class="sdpi-item-value">
+        <input type="number" id="interval" min="1" max="60" step="1" value="2" />
+      </div>
+    </div>
+
+    <div class="section-title">On press</div>
+
+    <div class="sdpi-item">
+      <div class="sdpi-item-label">Open Activity Monitor</div>
+      <div class="sdpi-item-value">
+        <input type="checkbox" id="openOnPress" checked />
+      </div>
+    </div>
+
+    <div class="section-title">Thresholds</div>
+
+    <div class="sdpi-item">
+      <div class="sdpi-item-label">Yellow from (%)</div>
+      <div class="sdpi-item-value">
+        <input type="number" id="warn" min="0" max="100" step="1" value="60" />
+      </div>
+    </div>
+
+    <div class="sdpi-item">
+      <div class="sdpi-item-label">Red from (%)</div>
+      <div class="sdpi-item-value">
+        <input type="number" id="crit" min="0" max="100" step="1" value="85" />
+      </div>
+    </div>
+
+    <div class="section-title">Colors</div>
+
+    <div class="sdpi-item">
+      <div class="sdpi-item-label">Green</div>
+      <div class="sdpi-item-value"><input type="color" id="green" value="#30D158" /></div>
+    </div>
+    <div class="sdpi-item">
+      <div class="sdpi-item-label">Yellow</div>
+      <div class="sdpi-item-value"><input type="color" id="yellow" value="#FFD60A" /></div>
+    </div>
+    <div class="sdpi-item">
+      <div class="sdpi-item-label">Red</div>
+      <div class="sdpi-item-value"><input type="color" id="red" value="#FF453A" /></div>
+    </div>
+
+    <div class="hint">
+      CPU usage averaged over each refresh interval. The load-average line shows
+      the 1 / 5 / 15-minute system load.
+    </div>
+  </div>
+
+  <script>
+    let websocket = null;
+    let uuid = null;
+    let settings = {};
+
+    const numberFields = ['warn', 'crit', 'interval'];
+    const textFields = ['label'];
+    const colorFields = ['green', 'yellow', 'red'];
+    const selectFields = ['graphStyle'];
+    const checkboxFields = ['showLoad', 'openOnPress'];
+
+    function connectElgatoStreamDeckSocket(port, pluginUUID, registerEvent, info, actionInfoStr) {
+      uuid = pluginUUID;
+      const actionInfo = JSON.parse(actionInfoStr);
+      settings = actionInfo.payload?.settings || {};
+      applyToUI();
+
+      websocket = new WebSocket('ws://127.0.0.1:' + port);
+      websocket.onopen = function () {
+        websocket.send(JSON.stringify({ event: registerEvent, uuid: pluginUUID }));
+      };
+      websocket.onmessage = function (evt) {
+        const data = JSON.parse(evt.data);
+        if (data.event === 'didReceiveSettings') {
+          settings = data.payload?.settings || {};
+          applyToUI();
+        }
+      };
+
+      for (const id of numberFields) {
+        document.getElementById(id).addEventListener('input', function () {
+          settings[id] = this.value === '' ? undefined : Number(this.value);
+          saveSettings();
+        });
+      }
+      for (const id of [...textFields, ...colorFields, ...selectFields]) {
+        document.getElementById(id).addEventListener('input', function () {
+          settings[id] = this.value;
+          saveSettings();
+        });
+      }
+      for (const id of checkboxFields) {
+        document.getElementById(id).addEventListener('change', function () {
+          settings[id] = this.checked;
+          saveSettings();
+        });
+      }
+    }
+
+    function applyToUI() {
+      for (const id of [...numberFields, ...textFields, ...colorFields, ...selectFields]) {
+        if (settings[id] !== undefined && settings[id] !== null) {
+          document.getElementById(id).value = settings[id];
+        }
+      }
+      for (const id of checkboxFields) {
+        if (settings[id] !== undefined && settings[id] !== null) {
+          document.getElementById(id).checked = settings[id];
+        }
+      }
+    }
+
+    function saveSettings() {
+      if (websocket && websocket.readyState === WebSocket.OPEN) {
+        websocket.send(JSON.stringify({ event: 'setSettings', context: uuid, payload: settings }));
+      }
+    }
+  </script>
+</body>
+</html>
