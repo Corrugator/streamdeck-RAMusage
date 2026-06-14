@@ -11,6 +11,20 @@ farbige Prozentanzeige auf einer Taste darstellen.
 - **Tastendruck** öffnet den Aktivitätsmonitor
 - Aktualisiert sich automatisch (Standard: alle 2 Sekunden)
 
+## Vorschau
+
+**Zwei Actions – Memory & CPU**
+
+![Memory- und CPU-Action auf Stream-Deck-Tasten](docs/preview-actions.jpg)
+
+**Ampelfarben nach Schwellwert**
+
+![Anzeige wechselt grün → gelb → rot je nach Wert](docs/preview-colors.jpg)
+
+**Sieben Verlaufs-Stile**
+
+![Von dezenter Sparkline bis Vollflächen-Graph](docs/preview-graphs.jpg)
+
 ## Messung
 
 Alle Werte werden ohne Helper-Programm gelesen:
