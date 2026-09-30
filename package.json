@@ -1,6 +1,6 @@
 {
   "name": "com.corrugator.systemusage",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Stream Deck plugin showing macOS memory pressure and CPU usage as colored percentages",
   "type": "module",
   "scripts": {

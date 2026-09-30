@@ -58,6 +58,14 @@ export function formatGB(usedBytes: number, totalBytes: number): string {
   return `${usedStr} / ${total} GB`;
 }
 
+/** Formats a byte count as e.g. "512 MB" or "1.4 GB". */
+export function formatBytes(bytes: number): string {
+  const gb = bytes / BYTES_PER_GB;
+  if (gb >= 10) return `${Math.round(gb)} GB`;
+  if (gb >= 1) return `${gb.toFixed(1)} GB`;
+  return `${Math.round(bytes / (1024 * 1024))} MB`;
+}
+
 export type RenderOptions = {
   /** 0–100, the metric to display (pressure or usage). */
   value: number;
@@ -73,9 +81,9 @@ export type RenderOptions = {
   graphStyle?: GraphStyle;
 };
 
-const FONT = '-apple-system, Helvetica Neue, Helvetica, Arial, sans-serif';
-const BG = `<rect width="144" height="144" rx="18" fill="#1C1C1E"/>`;
-const clampPct = (v: number) => Math.max(0, Math.min(100, v));
+export const FONT = '-apple-system, Helvetica Neue, Helvetica, Arial, sans-serif';
+export const BG = `<rect width="144" height="144" rx="18" fill="#1C1C1E"/>`;
+export const clampPct = (v: number) => Math.max(0, Math.min(100, v));
 
 function historyOf(opts: RenderOptions): number[] {
   const h = opts.history;
@@ -83,7 +91,7 @@ function historyOf(opts: RenderOptions): number[] {
 }
 
 /** Maps history values to [x,y] points within the given box. */
-function graphPoints(
+export function graphPoints(
   history: number[],
   x0: number,
   x1: number,
@@ -95,13 +103,13 @@ function graphPoints(
   return h.map((v, i) => [x0 + i * dx, yBot - (clampPct(v) / 100) * (yBot - yTop)]);
 }
 
-const linePath = (pts: Array<[number, number]>) =>
+export const linePath = (pts: Array<[number, number]>) =>
   'M' + pts.map((p) => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' L');
 
-const areaPath = (pts: Array<[number, number]>, yBot: number) =>
+export const areaPath = (pts: Array<[number, number]>, yBot: number) =>
   `${linePath(pts)} L${pts[pts.length - 1][0].toFixed(1)},${yBot.toFixed(1)} L${pts[0][0].toFixed(1)},${yBot.toFixed(1)} Z`;
 
-function barRects(
+export function barRects(
   history: number[],
   x0: number,
   x1: number,
@@ -132,7 +140,7 @@ function subText(opts: RenderOptions, y: number, labelColor: string): string {
     : `<text x="72" y="${y}" text-anchor="middle" font-family="${FONT}" font-size="14" font-weight="600" letter-spacing="1.5" fill="${labelColor}">${opts.label}</text>`;
 }
 
-function svgWrap(inner: string): string {
+export function svgWrap(inner: string): string {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 144 144">${inner}</svg>`;
   return `data:image/svg+xml;charset=utf8,${encodeURIComponent(svg)}`;
 }

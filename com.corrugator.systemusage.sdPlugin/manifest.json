@@ -1,7 +1,7 @@
 {
   "$schema": "https://schemas.elgato.com/streamdeck/plugins/manifest.json",
   "Name": "System Usage",
-  "Version": "1.0.0.0",
+  "Version": "1.1.0.0",
   "Author": "Corrugator",
   "UUID": "com.corrugator.systemusage",
   "Actions": [
@@ -36,12 +36,44 @@
         }
       ],
       "PropertyInspectorPath": "ui/cpu-pi.html"
+    },
+    {
+      "Name": "GPU",
+      "UUID": "com.corrugator.systemusage.gpu",
+      "Icon": "imgs/actions/gpu/icon",
+      "Tooltip": "Shows macOS GPU utilization as a colored percentage.",
+      "Controllers": [
+        "Keypad"
+      ],
+      "States": [
+        {
+          "Image": "imgs/actions/gpu/key",
+          "TitleAlignment": "bottom"
+        }
+      ],
+      "PropertyInspectorPath": "ui/gpu-pi.html"
+    },
+    {
+      "Name": "Network",
+      "UUID": "com.corrugator.systemusage.network",
+      "Icon": "imgs/actions/network/icon",
+      "Tooltip": "Shows network download and upload rates with a history graph.",
+      "Controllers": [
+        "Keypad"
+      ],
+      "States": [
+        {
+          "Image": "imgs/actions/network/key",
+          "TitleAlignment": "bottom"
+        }
+      ],
+      "PropertyInspectorPath": "ui/network-pi.html"
     }
   ],
   "Category": "System Usage",
   "CategoryIcon": "imgs/plugin/category",
   "CodePath": "bin/plugin.js",
-  "Description": "Shows macOS memory and CPU usage on Stream Deck keys as percentages that turn green, yellow, or red, with optional GB / load lines and history graphs.",
+  "Description": "Shows macOS memory, CPU and GPU usage on Stream Deck keys as percentages that turn green, yellow, or red, plus live network download/upload rates, with optional detail lines and history graphs.",
   "Icon": "imgs/plugin/icon",
   "SDKVersion": 3,
   "Software": {

@@ -9213,6 +9213,15 @@ function formatGB(usedBytes, totalBytes) {
     const usedStr = used >= 10 ? Math.round(used).toString() : used.toFixed(1);
     return `${usedStr} / ${total} GB`;
 }
+/** Formats a byte count as e.g. "512 MB" or "1.4 GB". */
+function formatBytes(bytes) {
+    const gb = bytes / BYTES_PER_GB;
+    if (gb >= 10)
+        return `${Math.round(gb)} GB`;
+    if (gb >= 1)
+        return `${gb.toFixed(1)} GB`;
+    return `${Math.round(bytes / (1024 * 1024))} MB`;
+}
 const FONT = '-apple-system, Helvetica Neue, Helvetica, Arial, sans-serif';
 const BG = `<rect width="144" height="144" rx="18" fill="#1C1C1E"/>`;
 const clampPct$1 = (v) => Math.max(0, Math.min(100, v));
@@ -9339,47 +9348,20 @@ function renderKeyImage(opts) {
 
 const MIN_INTERVAL_MS = 1000;
 const DEFAULT_INTERVAL_MS = 2000;
-const MAX_HISTORY = 30;
-const GRAPH_STYLES = [
-    'off',
-    'sparkline',
-    'bars-mini',
-    'area',
-    'line',
-    'bars',
-    'background',
-];
 /**
- * Base class for a polling metric key: owns the refresh timer, history buffer,
- * common settings, rendering and the press-to-open-Activity-Monitor behavior.
- * State is per-instance, so each concrete action (memory, CPU) is independent.
+ * Base class for a key that refreshes its image on a timer: owns the refresh
+ * timer, the interval / label / press-to-open-Activity-Monitor settings and
+ * pushes the rendered image to every visible instance. Subclasses only decide
+ * what to draw.
  */
-class MetricAction extends SingletonAction {
-    history = [];
+class PollingAction extends SingletonAction {
     timer;
-    graphStyle = 'sparkline';
     openOnPress = true;
-    thresholds = { ...DEFAULT_THRESHOLDS };
-    palette = { ...DEFAULT_PALETTE };
     intervalMs = DEFAULT_INTERVAL_MS;
     label = '';
-    resetHistory() {
-        this.history = [];
-    }
     async update() {
         try {
-            const { value, subline } = await this.sample();
-            this.history.push(value);
-            if (this.history.length > MAX_HISTORY)
-                this.history.shift();
-            const image = renderKeyImage({
-                value,
-                color: colorForValue(value, this.thresholds, this.palette),
-                label: this.label,
-                subline,
-                history: this.graphStyle !== 'off' ? this.history : undefined,
-                graphStyle: this.graphStyle,
-            });
+            const image = await this.render();
             for (const a of this.actions) {
                 await a.setImage(image);
             }
@@ -9400,24 +9382,7 @@ class MetricAction extends SingletonAction {
         }
     }
     applySettings(s) {
-        this.graphStyle =
-            s.graphStyle && GRAPH_STYLES.includes(s.graphStyle)
-                ? s.graphStyle
-                : s.showGraph === false
-                    ? 'off'
-                    : 'sparkline';
         this.openOnPress = s.openOnPress ?? true;
-        const warn = Number(s.warn);
-        const crit = Number(s.crit);
-        this.thresholds = {
-            warn: Number.isFinite(warn) ? warn : DEFAULT_THRESHOLDS.warn,
-            crit: Number.isFinite(crit) ? crit : DEFAULT_THRESHOLDS.crit,
-        };
-        this.palette = {
-            green: s.green || DEFAULT_PALETTE.green,
-            yellow: s.yellow || DEFAULT_PALETTE.yellow,
-            red: s.red || DEFAULT_PALETTE.red,
-        };
         const sec = Number(s.interval);
         this.intervalMs =
             Number.isFinite(sec) && sec > 0
@@ -9425,9 +9390,7 @@ class MetricAction extends SingletonAction {
                 : DEFAULT_INTERVAL_MS;
         const fallback = this.defaultLabel();
         this.label = (s.label ?? fallback).toString().slice(0, 6).toUpperCase() || fallback;
-        if (this.applyOwnSettings(s)) {
-            this.resetHistory();
-        }
+        this.configure(s);
     }
     onWillAppear(ev) {
         this.applySettings(ev.payload.settings);
@@ -9459,7 +9422,68 @@ class MetricAction extends SingletonAction {
     }
 }
 
-const execFileAsync = promisify(execFile);
+const MAX_HISTORY$1 = 30;
+const GRAPH_STYLES = [
+    'off',
+    'sparkline',
+    'bars-mini',
+    'area',
+    'line',
+    'bars',
+    'background',
+];
+/**
+ * Base class for a 0–100 % metric key: ring + colored value with thresholds,
+ * palette and history graph. State is per-instance, so each concrete action
+ * (memory, CPU, GPU) is independent.
+ */
+class MetricAction extends PollingAction {
+    history = [];
+    graphStyle = 'sparkline';
+    thresholds = { ...DEFAULT_THRESHOLDS };
+    palette = { ...DEFAULT_PALETTE };
+    resetHistory() {
+        this.history = [];
+    }
+    async render() {
+        const { value, subline } = await this.sample();
+        this.history.push(value);
+        if (this.history.length > MAX_HISTORY$1)
+            this.history.shift();
+        return renderKeyImage({
+            value,
+            color: colorForValue(value, this.thresholds, this.palette),
+            label: this.label,
+            subline,
+            history: this.graphStyle !== 'off' ? this.history : undefined,
+            graphStyle: this.graphStyle,
+        });
+    }
+    configure(s) {
+        this.graphStyle =
+            s.graphStyle && GRAPH_STYLES.includes(s.graphStyle)
+                ? s.graphStyle
+                : s.showGraph === false
+                    ? 'off'
+                    : 'sparkline';
+        const warn = Number(s.warn);
+        const crit = Number(s.crit);
+        this.thresholds = {
+            warn: Number.isFinite(warn) ? warn : DEFAULT_THRESHOLDS.warn,
+            crit: Number.isFinite(crit) ? crit : DEFAULT_THRESHOLDS.crit,
+        };
+        this.palette = {
+            green: s.green || DEFAULT_PALETTE.green,
+            yellow: s.yellow || DEFAULT_PALETTE.yellow,
+            red: s.red || DEFAULT_PALETTE.red,
+        };
+        if (this.applyOwnSettings(s)) {
+            this.resetHistory();
+        }
+    }
+}
+
+const execFileAsync$2 = promisify(execFile);
 // hw.memsize and hw.pagesize never change during a session — fetch once.
 let totalBytes;
 let pageSize;
@@ -9496,8 +9520,8 @@ async function readMemoryStats() {
         ? ['-n', 'kern.memorystatus_level', 'kern.memorystatus_vm_pressure_level', 'hw.memsize', 'hw.pagesize']
         : ['-n', 'kern.memorystatus_level', 'kern.memorystatus_vm_pressure_level'];
     const [sysctlRes, vmStatRes] = await Promise.all([
-        execFileAsync('sysctl', sysctlArgs),
-        execFileAsync('vm_stat'),
+        execFileAsync$2('sysctl', sysctlArgs),
+        execFileAsync$2('vm_stat'),
     ]);
     const nums = sysctlRes.stdout.trim().split(/\s+/).map((v) => parseInt(v, 10));
     const free = clampPercent(nums[0]);
@@ -9571,7 +9595,7 @@ function snapshot() {
     }
     return { idle, total };
 }
-let previous;
+let previous$1;
 function clampPct(n) {
     if (!Number.isFinite(n))
         return 0;
@@ -9585,8 +9609,8 @@ function clampPct(n) {
  */
 function readCpuUsage() {
     const current = snapshot();
-    const prev = previous;
-    previous = current;
+    const prev = previous$1;
+    previous$1 = current;
     if (!prev) {
         return clampPct(Math.round((1 - current.idle / current.total) * 100));
     }
@@ -9635,8 +9659,306 @@ let CpuAction = (() => {
     return _classThis;
 })();
 
+const execFileAsync$1 = promisify(execFile);
+function numberOf(stats, key) {
+    const m = stats.match(new RegExp(`"${key}"=(\\d+)`));
+    return m ? parseInt(m[1], 10) : undefined;
+}
+/**
+ * Reads GPU stats from the IOAccelerator's `PerformanceStatistics` dictionary
+ * (`ioreg`, no root needed, ~15 ms). Machines with several GPUs report one
+ * accelerator each; the busiest one wins and their memory is summed.
+ */
+async function readGpuStats() {
+    const { stdout } = await execFileAsync$1('ioreg', ['-r', '-c', 'IOAccelerator', '-d', '1']);
+    let utilization = 0;
+    let memoryBytes = 0;
+    for (const line of stdout.split('\n')) {
+        if (!line.includes('"PerformanceStatistics"'))
+            continue;
+        utilization = Math.max(utilization, numberOf(line, 'Device Utilization %') ?? 0);
+        memoryBytes += numberOf(line, 'In use system memory') ?? 0;
+    }
+    return {
+        utilization: Math.max(0, Math.min(100, utilization)),
+        memoryBytes,
+    };
+}
+
+let GpuAction = (() => {
+    let _classDecorators = [action({ UUID: 'com.corrugator.systemusage.gpu' })];
+    let _classDescriptor;
+    let _classExtraInitializers = [];
+    let _classThis;
+    let _classSuper = MetricAction;
+    (class extends _classSuper {
+        static { _classThis = this; }
+        static {
+            const _metadata = typeof Symbol === "function" && Symbol.metadata ? Object.create(_classSuper[Symbol.metadata] ?? null) : void 0;
+            __esDecorate(null, _classDescriptor = { value: _classThis }, _classDecorators, { kind: "class", name: _classThis.name, metadata: _metadata }, null, _classExtraInitializers);
+            _classThis = _classDescriptor.value;
+            if (_metadata) Object.defineProperty(_classThis, Symbol.metadata, { enumerable: true, configurable: true, writable: true, value: _metadata });
+            __runInitializers(_classThis, _classExtraInitializers);
+        }
+        showMemory = true;
+        defaultLabel() {
+            return 'GPU';
+        }
+        applyOwnSettings(s) {
+            this.showMemory = s.showMemory ?? true;
+            return false;
+        }
+        async sample() {
+            const stats = await readGpuStats();
+            return {
+                value: stats.utilization,
+                subline: this.showMemory ? formatBytes(stats.memoryBytes) : undefined,
+            };
+        }
+    });
+    return _classThis;
+})();
+
+const execFileAsync = promisify(execFile);
+/** Interface selection meaning "all physical Ethernet / Wi-Fi ports". */
+const ALL_INTERFACES = 'all';
+// en* are the physical ports (Wi-Fi, Ethernet, Thunderbolt). bridge0, utun*
+// (VPN), awdl* etc. carry traffic that is already counted on an en* port.
+const PHYSICAL = /^en\d+$/;
+/**
+ * Parses the `<Link#n>` rows of `netstat -ibn`. Interfaces without a MAC
+ * address leave the Address column empty, so the byte counters are taken from
+ * the right: … Ibytes Opkts Oerrs Obytes Coll.
+ */
+async function readCounters() {
+    const { stdout } = await execFileAsync('netstat', ['-ibn']);
+    const counters = new Map();
+    for (const line of stdout.split('\n')) {
+        const f = line.trim().split(/\s+/);
+        if (f.length < 10 || !f[2]?.startsWith('<Link#'))
+            continue;
+        const n = f.length;
+        counters.set(f[0].replace(/\*$/, ''), {
+            rx: Number(f[n - 5]) || 0,
+            tx: Number(f[n - 2]) || 0,
+        });
+    }
+    return counters;
+}
+function sum(counters, iface) {
+    let rx = 0;
+    let tx = 0;
+    for (const [name, c] of counters) {
+        if (iface === ALL_INTERFACES ? PHYSICAL.test(name) : name === iface) {
+            rx += c.rx;
+            tx += c.tx;
+        }
+    }
+    return { rx, tx };
+}
+let previous;
+/**
+ * Download/upload rate of `iface` (or all physical ports) averaged over the
+ * interval since the previous call. The first call has no baseline and
+ * returns 0. Counter resets (interface re-plugged) are clamped to 0.
+ */
+async function readNetworkRates(iface) {
+    const counters = await readCounters();
+    const at = Date.now();
+    const prev = previous;
+    previous = { at, counters };
+    if (!prev)
+        return { down: 0, up: 0 };
+    const seconds = (at - prev.at) / 1000;
+    if (seconds <= 0)
+        return { down: 0, up: 0 };
+    const now = sum(counters, iface);
+    const before = sum(prev.counters, iface);
+    return {
+        down: Math.max(0, (now.rx - before.rx) / seconds),
+        up: Math.max(0, (now.tx - before.tx) / seconds),
+    };
+}
+/**
+ * Physical interfaces with their user-facing names (e.g. en0 → "Wi-Fi"), for
+ * the property inspector's interface picker.
+ */
+async function listInterfaces() {
+    const { stdout } = await execFileAsync('networksetup', ['-listallhardwareports']);
+    const result = [];
+    let port = '';
+    for (const line of stdout.split('\n')) {
+        const p = line.match(/^Hardware Port:\s*(.+)$/);
+        if (p)
+            port = p[1].trim();
+        const d = line.match(/^Device:\s*(\S+)/);
+        if (d && PHYSICAL.test(d[1])) {
+            // Some port names already carry the device, e.g. "Ethernet Adapter (en3)".
+            const name = port.includes(`(${d[1]})`) ? port : `${port} (${d[1]})`;
+            result.push({ id: d[1], name });
+        }
+    }
+    return result;
+}
+
+const DEFAULT_NETWORK_COLORS = {
+    down: '#64D2FF',
+    up: '#FF9F0A',
+};
+const BYTE_UNITS = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+const BIT_UNITS = ['bps', 'Kbps', 'Mbps', 'Gbps'];
+/** Graph floor so idle noise (a few hundred B/s) doesn't fill the chart. */
+const MIN_SCALE = 10 * 1000;
+/** Splits a rate into a short number and unit, e.g. { value: "12.3", unit: "MB/s" }. */
+function formatRate(bytesPerSec, bits) {
+    const units = bits ? BIT_UNITS : BYTE_UNITS;
+    let v = bits ? bytesPerSec * 8 : bytesPerSec;
+    let i = 0;
+    // Decimal prefixes, like Activity Monitor. 999.6 must become "1.0 K", not "1000".
+    while (v >= 999.5 && i < units.length - 1) {
+        v /= 1000;
+        i++;
+    }
+    const value = i === 0 || v >= 9.95 ? Math.round(v).toString() : v.toFixed(1);
+    return { value, unit: units[i] };
+}
+/** Normalizes rates to 0–100 against a shared scale so both series compare. */
+function toPercent(history, scale) {
+    return history.map((v) => (v / scale) * 100);
+}
+function rateRow(arrow, bytesPerSec, y, size, opts, color) {
+    const { value, unit } = formatRate(bytesPerSec, opts.bits);
+    // Separate <text> elements instead of <tspan>s: not every SVG renderer
+    // honors per-tspan size/color. Arrow left, value right-aligned so digits
+    // line up across rows, unit after it.
+    const text = (x, anchor, fontSize, fill, content) => `<text x="${x}" y="${y}" text-anchor="${anchor}" dominant-baseline="central" font-family="${FONT}" font-size="${fontSize}" font-weight="700" fill="${fill}">${content}</text>`;
+    return (text(14, 'start', Math.round(size * 0.85), color, arrow) +
+        text(96, 'end', size, '#FFFFFF', value) +
+        text(102, 'start', Math.round(size * 0.5), '#9A9A9E', unit));
+}
+function chart(history, color, kind, filled, yTop, yBot) {
+    if (kind === 'bars')
+        return barRects(history, 14, 130, yTop, yBot, color, filled ? 0.9 : 0.6);
+    const pts = graphPoints(history, 14, 130, yTop, yBot);
+    return ((filled ? `<path d="${areaPath(pts, yBot)}" fill="${color}" fill-opacity="0.22"/>` : '') +
+        `<path d="${linePath(pts)}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`);
+}
+/** Builds the 144×144 network key image (data URI). */
+function renderNetworkKey(opts) {
+    const { colors, mode } = opts;
+    const hasGraph = opts.graph !== 'off' && opts.downHistory.length >= 2;
+    const layers = [BG];
+    layers.push(`<text x="72" y="22" text-anchor="middle" dominant-baseline="central" font-family="${FONT}" font-size="12" font-weight="600" letter-spacing="1.5" fill="#9A9A9E">${opts.label}</text>`);
+    if (mode === 'both') {
+        if (hasGraph) {
+            const scale = Math.max(MIN_SCALE, ...opts.downHistory, ...opts.upHistory);
+            const yTop = 90;
+            const yBot = 128;
+            layers.push(`<line x1="14" y1="130" x2="130" y2="130" stroke="#3A3A3C" stroke-width="1"/>`, chart(toPercent(opts.downHistory, scale), colors.down, opts.graph, true, yTop, yBot), 
+            // Upload bars would hide the download bars, so upload is always a line.
+            chart(toPercent(opts.upHistory, scale), colors.up, 'line', false, yTop, yBot), rateRow('↓', opts.down, 46, 24, opts, colors.down), rateRow('↑', opts.up, 73, 24, opts, colors.up));
+        }
+        else {
+            layers.push(rateRow('↓', opts.down, 60, 28, opts, colors.down), rateRow('↑', opts.up, 100, 28, opts, colors.up));
+        }
+        return svgWrap(layers.join(''));
+    }
+    const isDown = mode === 'down';
+    const rate = isDown ? opts.down : opts.up;
+    const history = isDown ? opts.downHistory : opts.upHistory;
+    const color = isDown ? colors.down : colors.up;
+    const { value, unit } = formatRate(rate, opts.bits);
+    const valueY = hasGraph ? 60 : 68;
+    const unitY = hasGraph ? 88 : 100;
+    if (hasGraph) {
+        const scale = Math.max(MIN_SCALE, ...history);
+        layers.push(`<line x1="14" y1="130" x2="130" y2="130" stroke="#3A3A3C" stroke-width="1"/>`, chart(toPercent(history, scale), color, opts.graph, true, 100, 128));
+    }
+    layers.push(`<text x="72" y="${valueY}" text-anchor="middle" dominant-baseline="central" font-family="${FONT}" font-size="${value.length > 3 ? 36 : 42}" font-weight="700" fill="${color}">${value}</text>`, `<text x="72" y="${unitY}" text-anchor="middle" dominant-baseline="central" font-family="${FONT}" font-size="15" font-weight="600" fill="#D0D0D2">${isDown ? '↓' : '↑'} ${unit}</text>`);
+    return svgWrap(layers.join(''));
+}
+
+const MAX_HISTORY = 30;
+const MODES = ['both', 'down', 'up'];
+const GRAPHS = ['off', 'line', 'bars'];
+let NetworkAction = (() => {
+    let _classDecorators = [action({ UUID: 'com.corrugator.systemusage.network' })];
+    let _classDescriptor;
+    let _classExtraInitializers = [];
+    let _classThis;
+    let _classSuper = PollingAction;
+    (class extends _classSuper {
+        static { _classThis = this; }
+        static {
+            const _metadata = typeof Symbol === "function" && Symbol.metadata ? Object.create(_classSuper[Symbol.metadata] ?? null) : void 0;
+            __esDecorate(null, _classDescriptor = { value: _classThis }, _classDecorators, { kind: "class", name: _classThis.name, metadata: _metadata }, null, _classExtraInitializers);
+            _classThis = _classDescriptor.value;
+            if (_metadata) Object.defineProperty(_classThis, Symbol.metadata, { enumerable: true, configurable: true, writable: true, value: _metadata });
+            __runInitializers(_classThis, _classExtraInitializers);
+        }
+        iface = ALL_INTERFACES;
+        mode = 'both';
+        graph = 'line';
+        bits = false;
+        colors = { ...DEFAULT_NETWORK_COLORS };
+        downHistory = [];
+        upHistory = [];
+        defaultLabel() {
+            return 'NET';
+        }
+        configure(s) {
+            const iface = s.iface || ALL_INTERFACES;
+            if (iface !== this.iface) {
+                this.downHistory = [];
+                this.upHistory = [];
+            }
+            this.iface = iface;
+            this.mode = s.mode && MODES.includes(s.mode) ? s.mode : 'both';
+            this.graph = s.graph && GRAPHS.includes(s.graph) ? s.graph : 'line';
+            this.bits = s.bits ?? false;
+            this.colors = {
+                down: s.downColor || DEFAULT_NETWORK_COLORS.down,
+                up: s.upColor || DEFAULT_NETWORK_COLORS.up,
+            };
+        }
+        async render() {
+            const { down, up } = await readNetworkRates(this.iface);
+            this.downHistory.push(down);
+            this.upHistory.push(up);
+            if (this.downHistory.length > MAX_HISTORY)
+                this.downHistory.shift();
+            if (this.upHistory.length > MAX_HISTORY)
+                this.upHistory.shift();
+            return renderNetworkKey({
+                down,
+                up,
+                mode: this.mode,
+                graph: this.graph,
+                bits: this.bits,
+                label: this.label,
+                colors: this.colors,
+                downHistory: this.downHistory,
+                upHistory: this.upHistory,
+            });
+        }
+        /** Sends the machine's physical interfaces to the property inspector's picker. */
+        async onPropertyInspectorDidAppear(_ev) {
+            try {
+                const interfaces = await listInterfaces();
+                await streamDeck.ui.sendToPropertyInspector({ interfaces });
+            }
+            catch (err) {
+                streamDeck.logger.error('Failed to list network interfaces', err);
+            }
+        }
+    });
+    return _classThis;
+})();
+
 streamDeck.logger.setLevel('info');
 streamDeck.actions.registerAction(new MemoryAction());
 streamDeck.actions.registerAction(new CpuAction());
+streamDeck.actions.registerAction(new GpuAction());
+streamDeck.actions.registerAction(new NetworkAction());
 streamDeck.connect();
 //# sourceMappingURL=plugin.js.map
