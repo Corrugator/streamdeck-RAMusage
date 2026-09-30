@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 144 144">
+  <!-- Monochrome action-list icon: white strokes, transparent background. -->
+  <path d="M60 26 a12 12 0 0 1 24 0 v58 a24 24 0 1 1 -24 0 Z" fill="none" stroke="#FFFFFF" stroke-width="6" stroke-linejoin="round"/>
+  <line x1="72" y1="44" x2="72" y2="100" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="72" cy="104" r="13" fill="#FFFFFF"/>
+  <g stroke="#FFFFFF" stroke-width="5" stroke-linecap="round">
+    <line x1="96" y1="34" x2="110" y2="34"/>
+    <line x1="96" y1="50" x2="106" y2="50"/>
+    <line x1="96" y1="66" x2="110" y2="66"/>
+  </g>
+</svg>

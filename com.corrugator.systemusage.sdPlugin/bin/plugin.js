@@ -16,6 +16,8 @@ import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import os from 'node:os';
+import { chmod, statfs } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 
 /**
  * Default language supported by all i18n providers.
@@ -771,7 +773,7 @@ function jsonStringifyReplacer(_, value) {
         return value.toString();
     return value;
 }
-function cached(getter) {
+function cached$1(getter) {
     return {
         get value() {
             {
@@ -823,7 +825,7 @@ const captureStackTrace = Error.captureStackTrace
 function isObject(data) {
     return typeof data === "object" && data !== null && !Array.isArray(data);
 }
-const allowsEval = cached(() => {
+const allowsEval = cached$1(() => {
     if (typeof navigator !== "undefined" && navigator?.userAgent?.includes("Cloudflare")) {
         return false;
     }
@@ -1260,7 +1262,7 @@ function handleOptionalObjectResult(result, final, key, input) {
 const $ZodObject = /*@__PURE__*/ $constructor("$ZodObject", (inst, def) => {
     // requires cast because technically $ZodObject doesn't extend
     $ZodType.init(inst, def);
-    const _normalized = cached(() => {
+    const _normalized = cached$1(() => {
         const keys = Object.keys(def.shape);
         for (const k of keys) {
             if (!(def.shape[k] instanceof $ZodType)) {
@@ -9198,7 +9200,18 @@ const DEFAULT_PALETTE = {
     yellow: '#FFD60A',
     red: '#FF453A',
 };
-function colorForValue(value, thresholds, palette) {
+/**
+ * Picks the traffic-light color. Normally high values are bad; with
+ * `inverted` low values are (battery: red at/below `crit`, yellow at/below `warn`).
+ */
+function colorForValue(value, thresholds, palette, inverted = false) {
+    if (inverted) {
+        if (value <= thresholds.crit)
+            return palette.red;
+        if (value <= thresholds.warn)
+            return palette.yellow;
+        return palette.green;
+    }
     if (value >= thresholds.crit)
         return palette.red;
     if (value >= thresholds.warn)
@@ -9249,8 +9262,20 @@ function barRects(history, x0, x1, yTop, yBot, fill, op) {
     })
         .join('');
 }
-function valueText(pct, y, size, fill) {
-    return `<text x="72" y="${y}" text-anchor="middle" dominant-baseline="central" font-family="${FONT}" font-size="${size}" font-weight="700" fill="${fill}">${pct}%</text>`;
+/** The big value: `opts.text` if set, else "NN%". */
+function displayText(opts, pct) {
+    return opts.text ?? `${pct}%`;
+}
+/** Shrinks the font for longer values so they stay inside the ring. */
+function fitSize(text, size) {
+    if (text.length <= 3)
+        return size;
+    if (text.length === 4)
+        return Math.round(size * 0.82);
+    return Math.round(size * 0.7);
+}
+function valueText(text, y, size, fill) {
+    return `<text x="72" y="${y}" text-anchor="middle" dominant-baseline="central" font-family="${FONT}" font-size="${fitSize(text, size)}" font-weight="700" fill="${fill}">${text}</text>`;
 }
 function subText(opts, y, labelColor) {
     return opts.subline
@@ -9268,7 +9293,7 @@ function renderRing(opts, deco) {
     const r = 54;
     const circ = 2 * Math.PI * r;
     const filled = (pct / 100) * circ;
-    const valueFontSize = pct >= 100 ? 33 : 40;
+    const valueFontSize = 40;
     const compact = deco === 'sparkline' || deco === 'bars';
     const valueY = compact ? 54 : 64;
     const subY = compact ? 80 : 95;
@@ -9277,7 +9302,11 @@ function renderRing(opts, deco) {
         const pts = graphPoints(historyOf(opts), 8, 136, 42, 132);
         layers.push(`<path d="${areaPath(pts, 132)}" fill="${color}" fill-opacity="0.15"/>`, `<path d="${linePath(pts)}" fill="none" stroke="${color}" stroke-width="2" stroke-opacity="0.5"/>`);
     }
-    layers.push(`<g transform="rotate(-90 72 72)">`, `<circle cx="72" cy="72" r="${r}" fill="none" stroke="#3A3A3C" stroke-width="10"/>`, `<circle cx="72" cy="72" r="${r}" fill="none" stroke="${color}" stroke-width="10" stroke-linecap="round" stroke-dasharray="${filled.toFixed(2)} ${circ.toFixed(2)}"/>`, `</g>`);
+    layers.push(`<g transform="rotate(-90 72 72)">`, `<circle cx="72" cy="72" r="${r}" fill="none" stroke="#3A3A3C" stroke-width="10"/>`, 
+    // At 0 % the round line cap alone would still draw a dot at the top.
+    filled > 0
+        ? `<circle cx="72" cy="72" r="${r}" fill="none" stroke="${color}" stroke-width="10" stroke-linecap="round" stroke-dasharray="${filled.toFixed(2)} ${circ.toFixed(2)}"/>`
+        : '', `</g>`);
     if (deco === 'sparkline') {
         const pts = graphPoints(historyOf(opts), 30, 114, 102, 124);
         layers.push(`<path d="${areaPath(pts, 124)}" fill="#FFFFFF" fill-opacity="0.10"/>`, `<path d="${linePath(pts)}" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`);
@@ -9285,14 +9314,14 @@ function renderRing(opts, deco) {
     else if (deco === 'bars') {
         layers.push(barRects(historyOf(opts), 30, 114, 102, 124, '#FFFFFF', 0.9));
     }
-    layers.push(valueText(pct, valueY, valueFontSize, '#FFFFFF'), subText(opts, subY, color));
+    layers.push(valueText(displayText(opts, pct), valueY, valueFontSize, '#FFFFFF'), subText(opts, subY, color));
     return svgWrap(layers.join(''));
 }
 /** No-ring layout: large colored %, prominent line or bar chart below. */
 function renderBig(opts, kind) {
     const { color } = opts;
     const pct = Math.round(clampPct$1(opts.value));
-    const valueFontSize = pct >= 100 ? 36 : 42;
+    const valueFontSize = 42;
     const hist = historyOf(opts);
     const chart = kind === 'line'
         ? `<path d="${areaPath(graphPoints(hist, 14, 130, 80, 126), 126)}" fill="${color}" fill-opacity="0.22"/>` +
@@ -9301,7 +9330,7 @@ function renderBig(opts, kind) {
     return svgWrap([
         BG,
         // Colored percentage carries the green/yellow/red signal (no ring here).
-        valueText(pct, 42, valueFontSize, color),
+        valueText(displayText(opts, pct), 42, valueFontSize, color),
         subText(opts, 66, '#9A9A9E'),
         `<line x1="14" y1="128" x2="130" y2="128" stroke="#3A3A3C" stroke-width="1"/>`,
         chart,
@@ -9316,7 +9345,7 @@ function renderBackground(opts) {
         BG,
         `<path d="${areaPath(pts, 144)}" fill="${color}" fill-opacity="0.28"/>`,
         `<path d="${linePath(pts)}" fill="none" stroke="${color}" stroke-width="2.5"/>`,
-        valueText(pct, 60, pct >= 100 ? 40 : 46, '#FFFFFF'),
+        valueText(displayText(opts, pct), 60, 46, '#FFFFFF'),
         subText(opts, 88, color),
     ].join(''));
 }
@@ -9442,17 +9471,26 @@ class MetricAction extends PollingAction {
     graphStyle = 'sparkline';
     thresholds = { ...DEFAULT_THRESHOLDS };
     palette = { ...DEFAULT_PALETTE };
+    /** Thresholds used when the user hasn't set any. */
+    defaultThresholds() {
+        return DEFAULT_THRESHOLDS;
+    }
+    /** True when low values are bad (battery). */
+    invertColors() {
+        return false;
+    }
     resetHistory() {
         this.history = [];
     }
     async render() {
-        const { value, subline } = await this.sample();
+        const { value, text, subline, color } = await this.sample();
         this.history.push(value);
         if (this.history.length > MAX_HISTORY$1)
             this.history.shift();
         return renderKeyImage({
             value,
-            color: colorForValue(value, this.thresholds, this.palette),
+            text,
+            color: color ?? colorForValue(value, this.thresholds, this.palette, this.invertColors()),
             label: this.label,
             subline,
             history: this.graphStyle !== 'off' ? this.history : undefined,
@@ -9466,11 +9504,13 @@ class MetricAction extends PollingAction {
                 : s.showGraph === false
                     ? 'off'
                     : 'sparkline';
+        // Empty PI fields arrive as undefined; Number(undefined) is NaN → default.
         const warn = Number(s.warn);
         const crit = Number(s.crit);
+        const defaults = this.defaultThresholds();
         this.thresholds = {
-            warn: Number.isFinite(warn) ? warn : DEFAULT_THRESHOLDS.warn,
-            crit: Number.isFinite(crit) ? crit : DEFAULT_THRESHOLDS.crit,
+            warn: s.warn != null && Number.isFinite(warn) ? warn : defaults.warn,
+            crit: s.crit != null && Number.isFinite(crit) ? crit : defaults.crit,
         };
         this.palette = {
             green: s.green || DEFAULT_PALETTE.green,
@@ -9483,7 +9523,7 @@ class MetricAction extends PollingAction {
     }
 }
 
-const execFileAsync$2 = promisify(execFile);
+const execFileAsync$5 = promisify(execFile);
 // hw.memsize and hw.pagesize never change during a session — fetch once.
 let totalBytes;
 let pageSize;
@@ -9520,8 +9560,8 @@ async function readMemoryStats() {
         ? ['-n', 'kern.memorystatus_level', 'kern.memorystatus_vm_pressure_level', 'hw.memsize', 'hw.pagesize']
         : ['-n', 'kern.memorystatus_level', 'kern.memorystatus_vm_pressure_level'];
     const [sysctlRes, vmStatRes] = await Promise.all([
-        execFileAsync$2('sysctl', sysctlArgs),
-        execFileAsync$2('vm_stat'),
+        execFileAsync$5('sysctl', sysctlArgs),
+        execFileAsync$5('vm_stat'),
     ]);
     const nums = sysctlRes.stdout.trim().split(/\s+/).map((v) => parseInt(v, 10));
     const free = clampPercent(nums[0]);
@@ -9595,7 +9635,7 @@ function snapshot() {
     }
     return { idle, total };
 }
-let previous$1;
+let previous$2;
 function clampPct(n) {
     if (!Number.isFinite(n))
         return 0;
@@ -9609,8 +9649,8 @@ function clampPct(n) {
  */
 function readCpuUsage() {
     const current = snapshot();
-    const prev = previous$1;
-    previous$1 = current;
+    const prev = previous$2;
+    previous$2 = current;
     if (!prev) {
         return clampPct(Math.round((1 - current.idle / current.total) * 100));
     }
@@ -9645,6 +9685,9 @@ let CpuAction = (() => {
         defaultLabel() {
             return 'CPU';
         }
+        defaultThresholds() {
+            return { warn: 60, crit: 85 };
+        }
         applyOwnSettings(s) {
             this.showLoad = s.showLoad ?? true;
             return false;
@@ -9659,7 +9702,7 @@ let CpuAction = (() => {
     return _classThis;
 })();
 
-const execFileAsync$1 = promisify(execFile);
+const execFileAsync$4 = promisify(execFile);
 function numberOf(stats, key) {
     const m = stats.match(new RegExp(`"${key}"=(\\d+)`));
     return m ? parseInt(m[1], 10) : undefined;
@@ -9670,7 +9713,7 @@ function numberOf(stats, key) {
  * accelerator each; the busiest one wins and their memory is summed.
  */
 async function readGpuStats() {
-    const { stdout } = await execFileAsync$1('ioreg', ['-r', '-c', 'IOAccelerator', '-d', '1']);
+    const { stdout } = await execFileAsync$4('ioreg', ['-r', '-c', 'IOAccelerator', '-d', '1']);
     let utilization = 0;
     let memoryBytes = 0;
     for (const line of stdout.split('\n')) {
@@ -9704,6 +9747,9 @@ let GpuAction = (() => {
         defaultLabel() {
             return 'GPU';
         }
+        defaultThresholds() {
+            return { warn: 60, crit: 85 };
+        }
         applyOwnSettings(s) {
             this.showMemory = s.showMemory ?? true;
             return false;
@@ -9718,88 +9764,6 @@ let GpuAction = (() => {
     });
     return _classThis;
 })();
-
-const execFileAsync = promisify(execFile);
-/** Interface selection meaning "all physical Ethernet / Wi-Fi ports". */
-const ALL_INTERFACES = 'all';
-// en* are the physical ports (Wi-Fi, Ethernet, Thunderbolt). bridge0, utun*
-// (VPN), awdl* etc. carry traffic that is already counted on an en* port.
-const PHYSICAL = /^en\d+$/;
-/**
- * Parses the `<Link#n>` rows of `netstat -ibn`. Interfaces without a MAC
- * address leave the Address column empty, so the byte counters are taken from
- * the right: … Ibytes Opkts Oerrs Obytes Coll.
- */
-async function readCounters() {
-    const { stdout } = await execFileAsync('netstat', ['-ibn']);
-    const counters = new Map();
-    for (const line of stdout.split('\n')) {
-        const f = line.trim().split(/\s+/);
-        if (f.length < 10 || !f[2]?.startsWith('<Link#'))
-            continue;
-        const n = f.length;
-        counters.set(f[0].replace(/\*$/, ''), {
-            rx: Number(f[n - 5]) || 0,
-            tx: Number(f[n - 2]) || 0,
-        });
-    }
-    return counters;
-}
-function sum(counters, iface) {
-    let rx = 0;
-    let tx = 0;
-    for (const [name, c] of counters) {
-        if (iface === ALL_INTERFACES ? PHYSICAL.test(name) : name === iface) {
-            rx += c.rx;
-            tx += c.tx;
-        }
-    }
-    return { rx, tx };
-}
-let previous;
-/**
- * Download/upload rate of `iface` (or all physical ports) averaged over the
- * interval since the previous call. The first call has no baseline and
- * returns 0. Counter resets (interface re-plugged) are clamped to 0.
- */
-async function readNetworkRates(iface) {
-    const counters = await readCounters();
-    const at = Date.now();
-    const prev = previous;
-    previous = { at, counters };
-    if (!prev)
-        return { down: 0, up: 0 };
-    const seconds = (at - prev.at) / 1000;
-    if (seconds <= 0)
-        return { down: 0, up: 0 };
-    const now = sum(counters, iface);
-    const before = sum(prev.counters, iface);
-    return {
-        down: Math.max(0, (now.rx - before.rx) / seconds),
-        up: Math.max(0, (now.tx - before.tx) / seconds),
-    };
-}
-/**
- * Physical interfaces with their user-facing names (e.g. en0 → "Wi-Fi"), for
- * the property inspector's interface picker.
- */
-async function listInterfaces() {
-    const { stdout } = await execFileAsync('networksetup', ['-listallhardwareports']);
-    const result = [];
-    let port = '';
-    for (const line of stdout.split('\n')) {
-        const p = line.match(/^Hardware Port:\s*(.+)$/);
-        if (p)
-            port = p[1].trim();
-        const d = line.match(/^Device:\s*(\S+)/);
-        if (d && PHYSICAL.test(d[1])) {
-            // Some port names already carry the device, e.g. "Ethernet Adapter (en3)".
-            const name = port.includes(`(${d[1]})`) ? port : `${port} (${d[1]})`;
-            result.push({ id: d[1], name });
-        }
-    }
-    return result;
-}
 
 const DEFAULT_NETWORK_COLORS = {
     down: '#64D2FF',
@@ -9846,6 +9810,7 @@ function chart(history, color, kind, filled, yTop, yBot) {
 /** Builds the 144×144 network key image (data URI). */
 function renderNetworkKey(opts) {
     const { colors, mode } = opts;
+    const arrows = opts.arrows ?? { down: '↓', up: '↑' };
     const hasGraph = opts.graph !== 'off' && opts.downHistory.length >= 2;
     const layers = [BG];
     layers.push(`<text x="72" y="22" text-anchor="middle" dominant-baseline="central" font-family="${FONT}" font-size="12" font-weight="600" letter-spacing="1.5" fill="#9A9A9E">${opts.label}</text>`);
@@ -9856,10 +9821,10 @@ function renderNetworkKey(opts) {
             const yBot = 128;
             layers.push(`<line x1="14" y1="130" x2="130" y2="130" stroke="#3A3A3C" stroke-width="1"/>`, chart(toPercent(opts.downHistory, scale), colors.down, opts.graph, true, yTop, yBot), 
             // Upload bars would hide the download bars, so upload is always a line.
-            chart(toPercent(opts.upHistory, scale), colors.up, 'line', false, yTop, yBot), rateRow('↓', opts.down, 46, 24, opts, colors.down), rateRow('↑', opts.up, 73, 24, opts, colors.up));
+            chart(toPercent(opts.upHistory, scale), colors.up, 'line', false, yTop, yBot), rateRow(arrows.down, opts.down, 46, 24, opts, colors.down), rateRow(arrows.up, opts.up, 73, 24, opts, colors.up));
         }
         else {
-            layers.push(rateRow('↓', opts.down, 60, 28, opts, colors.down), rateRow('↑', opts.up, 100, 28, opts, colors.up));
+            layers.push(rateRow(arrows.down, opts.down, 60, 28, opts, colors.down), rateRow(arrows.up, opts.up, 100, 28, opts, colors.up));
         }
         return svgWrap(layers.join(''));
     }
@@ -9874,19 +9839,156 @@ function renderNetworkKey(opts) {
         const scale = Math.max(MIN_SCALE, ...history);
         layers.push(`<line x1="14" y1="130" x2="130" y2="130" stroke="#3A3A3C" stroke-width="1"/>`, chart(toPercent(history, scale), color, opts.graph, true, 100, 128));
     }
-    layers.push(`<text x="72" y="${valueY}" text-anchor="middle" dominant-baseline="central" font-family="${FONT}" font-size="${value.length > 3 ? 36 : 42}" font-weight="700" fill="${color}">${value}</text>`, `<text x="72" y="${unitY}" text-anchor="middle" dominant-baseline="central" font-family="${FONT}" font-size="15" font-weight="600" fill="#D0D0D2">${isDown ? '↓' : '↑'} ${unit}</text>`);
+    layers.push(`<text x="72" y="${valueY}" text-anchor="middle" dominant-baseline="central" font-family="${FONT}" font-size="${value.length > 3 ? 36 : 42}" font-weight="700" fill="${color}">${value}</text>`, `<text x="72" y="${unitY}" text-anchor="middle" dominant-baseline="central" font-family="${FONT}" font-size="15" font-weight="600" fill="#D0D0D2">${isDown ? arrows.down : arrows.up} ${unit}</text>`);
     return svgWrap(layers.join(''));
 }
 
 const MAX_HISTORY = 30;
 const MODES = ['both', 'down', 'up'];
 const GRAPHS = ['off', 'line', 'bars'];
+/**
+ * Base class for a key showing two byte rates (download/upload, read/write)
+ * with their own colors and a shared-scale history graph.
+ */
+class RateAction extends PollingAction {
+    defaultColors;
+    arrows;
+    mode = 'both';
+    graph = 'line';
+    bits = false;
+    colors;
+    downHistory = [];
+    upHistory = [];
+    constructor(defaultColors, arrows) {
+        super();
+        this.defaultColors = defaultColors;
+        this.arrows = arrows;
+        this.colors = { ...defaultColors };
+    }
+    configure(s) {
+        this.mode = s.mode && MODES.includes(s.mode) ? s.mode : 'both';
+        this.graph = s.graph && GRAPHS.includes(s.graph) ? s.graph : 'line';
+        this.bits = s.bits ?? false;
+        this.colors = {
+            down: s.downColor || this.defaultColors.down,
+            up: s.upColor || this.defaultColors.up,
+        };
+        if (this.applyOwnSettings(s)) {
+            this.downHistory = [];
+            this.upHistory = [];
+        }
+    }
+    async render() {
+        const { down, up } = await this.sampleRates();
+        this.downHistory.push(down);
+        this.upHistory.push(up);
+        if (this.downHistory.length > MAX_HISTORY)
+            this.downHistory.shift();
+        if (this.upHistory.length > MAX_HISTORY)
+            this.upHistory.shift();
+        return renderNetworkKey({
+            down,
+            up,
+            mode: this.mode,
+            graph: this.graph,
+            bits: this.bits,
+            label: this.label,
+            colors: this.colors,
+            arrows: this.arrows,
+            downHistory: this.downHistory,
+            upHistory: this.upHistory,
+        });
+    }
+}
+
+const execFileAsync$3 = promisify(execFile);
+/** Interface selection meaning "all physical Ethernet / Wi-Fi ports". */
+const ALL_INTERFACES = 'all';
+// en* are the physical ports (Wi-Fi, Ethernet, Thunderbolt). bridge0, utun*
+// (VPN), awdl* etc. carry traffic that is already counted on an en* port.
+const PHYSICAL = /^en\d+$/;
+/**
+ * Parses the `<Link#n>` rows of `netstat -ibn`. Interfaces without a MAC
+ * address leave the Address column empty, so the byte counters are taken from
+ * the right: … Ibytes Opkts Oerrs Obytes Coll.
+ */
+async function readCounters$1() {
+    const { stdout } = await execFileAsync$3('netstat', ['-ibn']);
+    const counters = new Map();
+    for (const line of stdout.split('\n')) {
+        const f = line.trim().split(/\s+/);
+        if (f.length < 10 || !f[2]?.startsWith('<Link#'))
+            continue;
+        const n = f.length;
+        counters.set(f[0].replace(/\*$/, ''), {
+            rx: Number(f[n - 5]) || 0,
+            tx: Number(f[n - 2]) || 0,
+        });
+    }
+    return counters;
+}
+function sum(counters, iface) {
+    let rx = 0;
+    let tx = 0;
+    for (const [name, c] of counters) {
+        if (iface === ALL_INTERFACES ? PHYSICAL.test(name) : name === iface) {
+            rx += c.rx;
+            tx += c.tx;
+        }
+    }
+    return { rx, tx };
+}
+let previous$1;
+/**
+ * Download/upload rate of `iface` (or all physical ports) averaged over the
+ * interval since the previous call. The first call has no baseline and
+ * returns 0. Counter resets (interface re-plugged) are clamped to 0.
+ */
+async function readNetworkRates(iface) {
+    const counters = await readCounters$1();
+    const at = Date.now();
+    const prev = previous$1;
+    previous$1 = { at, counters };
+    if (!prev)
+        return { down: 0, up: 0 };
+    const seconds = (at - prev.at) / 1000;
+    if (seconds <= 0)
+        return { down: 0, up: 0 };
+    const now = sum(counters, iface);
+    const before = sum(prev.counters, iface);
+    return {
+        down: Math.max(0, (now.rx - before.rx) / seconds),
+        up: Math.max(0, (now.tx - before.tx) / seconds),
+    };
+}
+/**
+ * Physical interfaces with their user-facing names (e.g. en0 → "Wi-Fi"), for
+ * the property inspector's interface picker.
+ */
+async function listInterfaces() {
+    const { stdout } = await execFileAsync$3('networksetup', ['-listallhardwareports']);
+    const result = [];
+    let port = '';
+    for (const line of stdout.split('\n')) {
+        const p = line.match(/^Hardware Port:\s*(.+)$/);
+        if (p)
+            port = p[1].trim();
+        const d = line.match(/^Device:\s*(\S+)/);
+        if (d && PHYSICAL.test(d[1])) {
+            // Some port names already carry the device, e.g. "Ethernet Adapter (en3)".
+            const name = port.includes(`(${d[1]})`) ? port : `${port} (${d[1]})`;
+            result.push({ id: d[1], name });
+        }
+    }
+    return result;
+}
+
 let NetworkAction = (() => {
     let _classDecorators = [action({ UUID: 'com.corrugator.systemusage.network' })];
     let _classDescriptor;
     let _classExtraInitializers = [];
     let _classThis;
-    let _classSuper = PollingAction;
+    let _classSuper = RateAction;
     (class extends _classSuper {
         static { _classThis = this; }
         static {
@@ -9897,49 +9999,20 @@ let NetworkAction = (() => {
             __runInitializers(_classThis, _classExtraInitializers);
         }
         iface = ALL_INTERFACES;
-        mode = 'both';
-        graph = 'line';
-        bits = false;
-        colors = { ...DEFAULT_NETWORK_COLORS };
-        downHistory = [];
-        upHistory = [];
+        constructor() {
+            super(DEFAULT_NETWORK_COLORS);
+        }
         defaultLabel() {
             return 'NET';
         }
-        configure(s) {
+        applyOwnSettings(s) {
             const iface = s.iface || ALL_INTERFACES;
-            if (iface !== this.iface) {
-                this.downHistory = [];
-                this.upHistory = [];
-            }
+            const changed = iface !== this.iface;
             this.iface = iface;
-            this.mode = s.mode && MODES.includes(s.mode) ? s.mode : 'both';
-            this.graph = s.graph && GRAPHS.includes(s.graph) ? s.graph : 'line';
-            this.bits = s.bits ?? false;
-            this.colors = {
-                down: s.downColor || DEFAULT_NETWORK_COLORS.down,
-                up: s.upColor || DEFAULT_NETWORK_COLORS.up,
-            };
+            return changed;
         }
-        async render() {
-            const { down, up } = await readNetworkRates(this.iface);
-            this.downHistory.push(down);
-            this.upHistory.push(up);
-            if (this.downHistory.length > MAX_HISTORY)
-                this.downHistory.shift();
-            if (this.upHistory.length > MAX_HISTORY)
-                this.upHistory.shift();
-            return renderNetworkKey({
-                down,
-                up,
-                mode: this.mode,
-                graph: this.graph,
-                bits: this.bits,
-                label: this.label,
-                colors: this.colors,
-                downHistory: this.downHistory,
-                upHistory: this.upHistory,
-            });
+        sampleRates() {
+            return readNetworkRates(this.iface);
         }
         /** Sends the machine's physical interfaces to the property inspector's picker. */
         async onPropertyInspectorDidAppear(_ev) {
@@ -9955,10 +10028,414 @@ let NetworkAction = (() => {
     return _classThis;
 })();
 
+const execFileAsync$2 = promisify(execFile);
+// bin/sensors sits next to the bundled bin/plugin.js.
+const HELPER = fileURLToPath(new URL('./sensors', import.meta.url));
+/** Temperature and fan keys on the same refresh share one helper run. */
+const CACHE_MS = 800;
+let cached;
+let prepared = false;
+/**
+ * Makes the helper runnable once before its first use:
+ * - the .streamDeckPlugin archive doesn't keep the executable bit, so set it;
+ * - a plugin downloaded from the web can carry the quarantine flag, which
+ *   makes Gatekeeper block the helper. It's our own file, so drop the flag
+ *   (failure just means there was none).
+ */
+async function prepare() {
+    if (prepared)
+        return;
+    prepared = true;
+    await chmod(HELPER, 0o755).catch(() => undefined);
+    await execFileAsync$2('xattr', ['-d', 'com.apple.quarantine', HELPER]).catch(() => undefined);
+}
+async function run() {
+    await prepare();
+    const { stdout } = await execFileAsync$2(HELPER, [], { timeout: 5000 });
+    return JSON.parse(stdout);
+}
+/**
+ * Temperatures, fans, system power and thermal state from the bundled Swift
+ * helper (IOHID + SMC, no root). Results are cached briefly so several keys
+ * refreshing together cost one helper run (~0.2 s, mostly IOHID).
+ */
+function readSensors() {
+    const now = Date.now();
+    if (cached && now - cached.at < CACHE_MS)
+        return cached.value;
+    const value = run();
+    cached = { at: now, value };
+    value.catch(() => {
+        if (cached?.value === value)
+            cached = undefined;
+    });
+    return value;
+}
+
+const SENSORS = ['cpu', 'cpuMax', 'battery', 'ssd'];
+const SUBLINES$1 = ['fan', 'power', 'thermal', 'none'];
+let TemperatureAction = (() => {
+    let _classDecorators = [action({ UUID: 'com.corrugator.systemusage.temperature' })];
+    let _classDescriptor;
+    let _classExtraInitializers = [];
+    let _classThis;
+    let _classSuper = MetricAction;
+    (class extends _classSuper {
+        static { _classThis = this; }
+        static {
+            const _metadata = typeof Symbol === "function" && Symbol.metadata ? Object.create(_classSuper[Symbol.metadata] ?? null) : void 0;
+            __esDecorate(null, _classDescriptor = { value: _classThis }, _classDecorators, { kind: "class", name: _classThis.name, metadata: _metadata }, null, _classExtraInitializers);
+            _classThis = _classDescriptor.value;
+            if (_metadata) Object.defineProperty(_classThis, Symbol.metadata, { enumerable: true, configurable: true, writable: true, value: _metadata });
+            __runInitializers(_classThis, _classExtraInitializers);
+        }
+        sensor = 'cpu';
+        fahrenheit = false;
+        subline = 'fan';
+        defaultLabel() {
+            return 'TEMP';
+        }
+        /** In °C, also when the key shows °F. */
+        defaultThresholds() {
+            return { warn: 70, crit: 90 };
+        }
+        applyOwnSettings(s) {
+            const sensor = s.sensor && SENSORS.includes(s.sensor) ? s.sensor : 'cpu';
+            const changed = sensor !== this.sensor;
+            this.sensor = sensor;
+            this.fahrenheit = s.fahrenheit ?? false;
+            this.subline = s.subline && SUBLINES$1.includes(s.subline) ? s.subline : 'fan';
+            return changed;
+        }
+        sublineFor(r) {
+            switch (this.subline) {
+                case 'fan': {
+                    const rpm = Math.max(0, ...r.fans.map((f) => f.rpm));
+                    return r.fans.length > 0 ? `${rpm} RPM` : undefined;
+                }
+                case 'power':
+                    return r.power !== undefined ? `${r.power >= 10 ? Math.round(r.power) : r.power.toFixed(1)} W` : undefined;
+                case 'thermal':
+                    return r.thermalState;
+                default:
+                    return undefined;
+            }
+        }
+        async sample() {
+            const r = await readSensors();
+            const celsius = r.temps[this.sensor];
+            if (celsius === undefined) {
+                return { value: 0, text: '—', subline: 'no sensor', color: '#8E8E93' };
+            }
+            const shown = this.fahrenheit ? celsius * 1.8 + 32 : celsius;
+            return {
+                // Ring and thresholds work in °C: 0–100 °C fills the ring.
+                value: Math.max(0, Math.min(100, celsius)),
+                text: `${Math.round(shown)}°`,
+                subline: this.sublineFor(r),
+            };
+        }
+    });
+    return _classThis;
+})();
+
+function pick(fans, selection) {
+    if (fans.length === 0)
+        return undefined;
+    if (selection === 'avg') {
+        const avg = (k) => fans.reduce((sum, f) => sum + f[k], 0) / fans.length;
+        return { rpm: avg('rpm'), min: avg('min'), max: avg('max') };
+    }
+    const index = Number(selection);
+    if (Number.isInteger(index))
+        return fans[index];
+    return fans.reduce((a, b) => (b.rpm > a.rpm ? b : a));
+}
+let FanAction = (() => {
+    let _classDecorators = [action({ UUID: 'com.corrugator.systemusage.fan' })];
+    let _classDescriptor;
+    let _classExtraInitializers = [];
+    let _classThis;
+    let _classSuper = MetricAction;
+    (class extends _classSuper {
+        static { _classThis = this; }
+        static {
+            const _metadata = typeof Symbol === "function" && Symbol.metadata ? Object.create(_classSuper[Symbol.metadata] ?? null) : void 0;
+            __esDecorate(null, _classDescriptor = { value: _classThis }, _classDecorators, { kind: "class", name: _classThis.name, metadata: _metadata }, null, _classExtraInitializers);
+            _classThis = _classDescriptor.value;
+            if (_metadata) Object.defineProperty(_classThis, Symbol.metadata, { enumerable: true, configurable: true, writable: true, value: _metadata });
+            __runInitializers(_classThis, _classExtraInitializers);
+        }
+        fan = 'max';
+        showPercent = false;
+        defaultLabel() {
+            return 'FAN';
+        }
+        /** In percent of the fan's maximum speed. */
+        defaultThresholds() {
+            return { warn: 60, crit: 85 };
+        }
+        applyOwnSettings(s) {
+            const fan = s.fan || 'max';
+            const changed = fan !== this.fan;
+            this.fan = fan;
+            this.showPercent = s.showPercent ?? false;
+            return changed;
+        }
+        async sample() {
+            const r = await readSensors();
+            const f = pick(r.fans, this.fan);
+            if (!f)
+                return { value: 0, text: '—', subline: 'no fan', color: '#8E8E93' };
+            const pct = f.max > 0 ? Math.max(0, Math.min(100, (f.rpm / f.max) * 100)) : 0;
+            const rpm = Math.round(f.rpm);
+            return {
+                value: pct,
+                text: this.showPercent ? undefined : String(rpm),
+                subline: this.showPercent ? `${rpm} RPM` : undefined,
+            };
+        }
+    });
+    return _classThis;
+})();
+
+const execFileAsync$1 = promisify(execFile);
+function field(out, key) {
+    return out.match(new RegExp(`"${key}" = (\\S+)`))?.[1];
+}
+/** ioreg prints negative values as their unsigned 64-bit two's complement. */
+function signed(raw) {
+    if (!raw)
+        return 0;
+    return Number(BigInt.asIntN(64, BigInt(raw)));
+}
+/**
+ * Reads the internal battery from the AppleSmartBattery IORegistry entry.
+ * Returns undefined on Macs without a battery.
+ */
+async function readBattery() {
+    const { stdout } = await execFileAsync$1('ioreg', ['-r', '-n', 'AppleSmartBattery', '-d', '1']);
+    const percent = field(stdout, 'CurrentCapacity');
+    if (percent === undefined)
+        return undefined;
+    const charging = field(stdout, 'IsCharging') === 'Yes';
+    const minutes = Number(field(stdout, charging ? 'AvgTimeToFull' : 'AvgTimeToEmpty'));
+    const volts = Number(field(stdout, 'Voltage') ?? 0) / 1000;
+    const amps = signed(field(stdout, 'Amperage')) / 1000;
+    const full = Number(stdout.match(/"FullChargeCapacity"=(\d+)/)?.[1]);
+    const design = Number(stdout.match(/"DesignCapacity"=(\d+)/)?.[1]);
+    const cycles = Number(field(stdout, 'CycleCount'));
+    return {
+        percent: Math.max(0, Math.min(100, Number(percent))),
+        charging,
+        pluggedIn: field(stdout, 'ExternalConnected') === 'Yes',
+        // 65535 = "still calculating".
+        minutesLeft: Number.isFinite(minutes) && minutes > 0 && minutes < 65535 ? minutes : undefined,
+        watts: volts * amps,
+        health: full > 0 && design > 0 ? Math.round((full / design) * 100) : undefined,
+        cycles: Number.isFinite(cycles) ? cycles : undefined,
+    };
+}
+
+const SUBLINES = ['time', 'power', 'health', 'none'];
+function formatMinutes(min) {
+    return `${Math.floor(min / 60)}:${String(min % 60).padStart(2, '0')}`;
+}
+let BatteryAction = (() => {
+    let _classDecorators = [action({ UUID: 'com.corrugator.systemusage.battery' })];
+    let _classDescriptor;
+    let _classExtraInitializers = [];
+    let _classThis;
+    let _classSuper = MetricAction;
+    (class extends _classSuper {
+        static { _classThis = this; }
+        static {
+            const _metadata = typeof Symbol === "function" && Symbol.metadata ? Object.create(_classSuper[Symbol.metadata] ?? null) : void 0;
+            __esDecorate(null, _classDescriptor = { value: _classThis }, _classDecorators, { kind: "class", name: _classThis.name, metadata: _metadata }, null, _classExtraInitializers);
+            _classThis = _classDescriptor.value;
+            if (_metadata) Object.defineProperty(_classThis, Symbol.metadata, { enumerable: true, configurable: true, writable: true, value: _metadata });
+            __runInitializers(_classThis, _classExtraInitializers);
+        }
+        subline = 'time';
+        defaultLabel() {
+            return 'BAT';
+        }
+        /** Inverted: yellow at/below 30 %, red at/below 15 %. */
+        defaultThresholds() {
+            return { warn: 30, crit: 15 };
+        }
+        invertColors() {
+            return true;
+        }
+        applyOwnSettings(s) {
+            this.subline = s.subline && SUBLINES.includes(s.subline) ? s.subline : 'time';
+            return false;
+        }
+        sublineFor(b) {
+            const bolt = b.charging ? '⚡ ' : '';
+            switch (this.subline) {
+                case 'time':
+                    if (b.pluggedIn && !b.charging)
+                        return b.percent >= 100 ? 'Charged' : 'On power';
+                    return bolt + (b.minutesLeft !== undefined ? formatMinutes(b.minutesLeft) : '…');
+                case 'power': {
+                    const w = Math.abs(b.watts);
+                    return `${bolt}${w >= 10 ? Math.round(w) : w.toFixed(1)} W`;
+                }
+                case 'health':
+                    return b.health !== undefined ? `${b.health}% · ${b.cycles ?? '?'} cyc` : undefined;
+                default:
+                    return b.charging ? '⚡' : undefined;
+            }
+        }
+        async sample() {
+            const b = await readBattery();
+            if (!b)
+                return { value: 0, text: '—', subline: 'No battery', color: '#8E8E93' };
+            return { value: b.percent, subline: this.sublineFor(b) };
+        }
+    });
+    return _classThis;
+})();
+
+const execFileAsync = promisify(execFile);
+/**
+ * Capacity of the volume containing `path`. "Used" is total minus what the
+ * user can still write, so APFS space shared with other volumes of the same
+ * container counts as used, like in `df`.
+ */
+async function readDiskSpace(path) {
+    const s = await statfs(path);
+    const totalBytes = s.blocks * s.bsize;
+    const freeBytes = s.bavail * s.bsize;
+    const percent = totalBytes > 0 ? ((totalBytes - freeBytes) / totalBytes) * 100 : 0;
+    return { percent: Math.max(0, Math.min(100, Math.round(percent))), freeBytes, totalBytes };
+}
+/** Sums "Bytes (Read)/(Write)" over all IOBlockStorageDriver entries (one per physical disk). */
+async function readCounters() {
+    const { stdout } = await execFileAsync('ioreg', ['-r', '-c', 'IOBlockStorageDriver', '-d', '1']);
+    let read = 0;
+    let write = 0;
+    for (const m of stdout.matchAll(/"Bytes \(Read\)"=(\d+)/g))
+        read += Number(m[1]);
+    for (const m of stdout.matchAll(/"Bytes \(Write\)"=(\d+)/g))
+        write += Number(m[1]);
+    return { read, write };
+}
+let previous;
+/**
+ * Disk read/write rate in bytes per second across all disks, averaged over
+ * the interval since the previous call. The first call returns 0. A disk
+ * being ejected lowers the sums; that is clamped to 0.
+ */
+async function readDiskRates() {
+    const counters = await readCounters();
+    const at = Date.now();
+    const prev = previous;
+    previous = { at, counters };
+    if (!prev)
+        return { read: 0, write: 0 };
+    const seconds = (at - prev.at) / 1000;
+    if (seconds <= 0)
+        return { read: 0, write: 0 };
+    return {
+        read: Math.max(0, (counters.read - prev.counters.read) / seconds),
+        write: Math.max(0, (counters.write - prev.counters.write) / seconds),
+    };
+}
+
+let DiskAction = (() => {
+    let _classDecorators = [action({ UUID: 'com.corrugator.systemusage.disk' })];
+    let _classDescriptor;
+    let _classExtraInitializers = [];
+    let _classThis;
+    let _classSuper = MetricAction;
+    (class extends _classSuper {
+        static { _classThis = this; }
+        static {
+            const _metadata = typeof Symbol === "function" && Symbol.metadata ? Object.create(_classSuper[Symbol.metadata] ?? null) : void 0;
+            __esDecorate(null, _classDescriptor = { value: _classThis }, _classDecorators, { kind: "class", name: _classThis.name, metadata: _metadata }, null, _classExtraInitializers);
+            _classThis = _classDescriptor.value;
+            if (_metadata) Object.defineProperty(_classThis, Symbol.metadata, { enumerable: true, configurable: true, writable: true, value: _metadata });
+            __runInitializers(_classThis, _classExtraInitializers);
+        }
+        path = '/';
+        subline = 'free';
+        defaultLabel() {
+            return 'DISK';
+        }
+        defaultThresholds() {
+            return { warn: 80, crit: 90 };
+        }
+        applyOwnSettings(s) {
+            const path = s.path?.trim() || '/';
+            const changed = path !== this.path;
+            this.path = path;
+            this.subline = s.subline === 'used' || s.subline === 'none' ? s.subline : 'free';
+            return changed;
+        }
+        async sample() {
+            try {
+                const d = await readDiskSpace(this.path);
+                const subline = this.subline === 'free'
+                    ? `${formatBytes(d.freeBytes)} free`
+                    : this.subline === 'used'
+                        ? `${formatBytes(d.totalBytes - d.freeBytes)} / ${formatBytes(d.totalBytes)}`
+                        : undefined;
+                return { value: d.percent, subline };
+            }
+            catch {
+                // Volume not mounted (external drive unplugged, typo in the path).
+                return { value: 0, text: '—', subline: 'not mounted', color: '#8E8E93' };
+            }
+        }
+    });
+    return _classThis;
+})();
+
+const DEFAULT_DISK_IO_COLORS = { down: '#BF5AF2', up: '#FF9F0A' };
+/** Disk read ("down") / write ("up") rates across all disks. */
+let DiskIoAction = (() => {
+    let _classDecorators = [action({ UUID: 'com.corrugator.systemusage.diskio' })];
+    let _classDescriptor;
+    let _classExtraInitializers = [];
+    let _classThis;
+    let _classSuper = RateAction;
+    (class extends _classSuper {
+        static { _classThis = this; }
+        static {
+            const _metadata = typeof Symbol === "function" && Symbol.metadata ? Object.create(_classSuper[Symbol.metadata] ?? null) : void 0;
+            __esDecorate(null, _classDescriptor = { value: _classThis }, _classDecorators, { kind: "class", name: _classThis.name, metadata: _metadata }, null, _classExtraInitializers);
+            _classThis = _classDescriptor.value;
+            if (_metadata) Object.defineProperty(_classThis, Symbol.metadata, { enumerable: true, configurable: true, writable: true, value: _metadata });
+            __runInitializers(_classThis, _classExtraInitializers);
+        }
+        constructor() {
+            super(DEFAULT_DISK_IO_COLORS, { down: 'R', up: 'W' });
+        }
+        defaultLabel() {
+            return 'DISK';
+        }
+        applyOwnSettings() {
+            return false;
+        }
+        async sampleRates() {
+            const { read, write } = await readDiskRates();
+            return { down: read, up: write };
+        }
+    });
+    return _classThis;
+})();
+
 streamDeck.logger.setLevel('info');
 streamDeck.actions.registerAction(new MemoryAction());
 streamDeck.actions.registerAction(new CpuAction());
 streamDeck.actions.registerAction(new GpuAction());
 streamDeck.actions.registerAction(new NetworkAction());
+streamDeck.actions.registerAction(new TemperatureAction());
+streamDeck.actions.registerAction(new FanAction());
+streamDeck.actions.registerAction(new BatteryAction());
+streamDeck.actions.registerAction(new DiskAction());
+streamDeck.actions.registerAction(new DiskIoAction());
 streamDeck.connect();
 //# sourceMappingURL=plugin.js.map

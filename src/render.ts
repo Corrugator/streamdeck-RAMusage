@@ -38,11 +38,21 @@ export const DEFAULT_PALETTE: Palette = {
   red: '#FF453A',
 };
 
+/**
+ * Picks the traffic-light color. Normally high values are bad; with
+ * `inverted` low values are (battery: red at/below `crit`, yellow at/below `warn`).
+ */
 export function colorForValue(
   value: number,
   thresholds: Thresholds,
   palette: Palette,
+  inverted = false,
 ): string {
+  if (inverted) {
+    if (value <= thresholds.crit) return palette.red;
+    if (value <= thresholds.warn) return palette.yellow;
+    return palette.green;
+  }
   if (value >= thresholds.crit) return palette.red;
   if (value >= thresholds.warn) return palette.yellow;
   return palette.green;
@@ -67,8 +77,10 @@ export function formatBytes(bytes: number): string {
 }
 
 export type RenderOptions = {
-  /** 0–100, the metric to display (pressure or usage). */
+  /** 0–100, the metric to display (pressure or usage). Drives ring and graph. */
   value: number;
+  /** Text shown instead of "NN%", e.g. "46°" or "2316". */
+  text?: string;
   /** Ring / chart accent color. */
   color: string;
   /** Short label shown when no GB sub-line is present (e.g. "RAM"). */
@@ -130,8 +142,20 @@ export function barRects(
     .join('');
 }
 
-function valueText(pct: number, y: number, size: number, fill: string): string {
-  return `<text x="72" y="${y}" text-anchor="middle" dominant-baseline="central" font-family="${FONT}" font-size="${size}" font-weight="700" fill="${fill}">${pct}%</text>`;
+/** The big value: `opts.text` if set, else "NN%". */
+function displayText(opts: RenderOptions, pct: number): string {
+  return opts.text ?? `${pct}%`;
+}
+
+/** Shrinks the font for longer values so they stay inside the ring. */
+function fitSize(text: string, size: number): number {
+  if (text.length <= 3) return size;
+  if (text.length === 4) return Math.round(size * 0.82);
+  return Math.round(size * 0.7);
+}
+
+function valueText(text: string, y: number, size: number, fill: string): string {
+  return `<text x="72" y="${y}" text-anchor="middle" dominant-baseline="central" font-family="${FONT}" font-size="${fitSize(text, size)}" font-weight="700" fill="${fill}">${text}</text>`;
 }
 
 function subText(opts: RenderOptions, y: number, labelColor: string): string {
@@ -152,7 +176,7 @@ function renderRing(opts: RenderOptions, deco: 'none' | 'sparkline' | 'bars' | '
   const r = 54;
   const circ = 2 * Math.PI * r;
   const filled = (pct / 100) * circ;
-  const valueFontSize = pct >= 100 ? 33 : 40;
+  const valueFontSize = 40;
   const compact = deco === 'sparkline' || deco === 'bars';
   const valueY = compact ? 54 : 64;
   const subY = compact ? 80 : 95;
@@ -170,7 +194,10 @@ function renderRing(opts: RenderOptions, deco: 'none' | 'sparkline' | 'bars' | '
   layers.push(
     `<g transform="rotate(-90 72 72)">`,
     `<circle cx="72" cy="72" r="${r}" fill="none" stroke="#3A3A3C" stroke-width="10"/>`,
-    `<circle cx="72" cy="72" r="${r}" fill="none" stroke="${color}" stroke-width="10" stroke-linecap="round" stroke-dasharray="${filled.toFixed(2)} ${circ.toFixed(2)}"/>`,
+    // At 0 % the round line cap alone would still draw a dot at the top.
+    filled > 0
+      ? `<circle cx="72" cy="72" r="${r}" fill="none" stroke="${color}" stroke-width="10" stroke-linecap="round" stroke-dasharray="${filled.toFixed(2)} ${circ.toFixed(2)}"/>`
+      : '',
     `</g>`,
   );
 
@@ -184,7 +211,7 @@ function renderRing(opts: RenderOptions, deco: 'none' | 'sparkline' | 'bars' | '
     layers.push(barRects(historyOf(opts), 30, 114, 102, 124, '#FFFFFF', 0.9));
   }
 
-  layers.push(valueText(pct, valueY, valueFontSize, '#FFFFFF'), subText(opts, subY, color));
+  layers.push(valueText(displayText(opts, pct), valueY, valueFontSize, '#FFFFFF'), subText(opts, subY, color));
   return svgWrap(layers.join(''));
 }
 
@@ -192,7 +219,7 @@ function renderRing(opts: RenderOptions, deco: 'none' | 'sparkline' | 'bars' | '
 function renderBig(opts: RenderOptions, kind: 'line' | 'bars'): string {
   const { color } = opts;
   const pct = Math.round(clampPct(opts.value));
-  const valueFontSize = pct >= 100 ? 36 : 42;
+  const valueFontSize = 42;
   const hist = historyOf(opts);
 
   const chart =
@@ -205,7 +232,7 @@ function renderBig(opts: RenderOptions, kind: 'line' | 'bars'): string {
     [
       BG,
       // Colored percentage carries the green/yellow/red signal (no ring here).
-      valueText(pct, 42, valueFontSize, color),
+      valueText(displayText(opts, pct), 42, valueFontSize, color),
       subText(opts, 66, '#9A9A9E'),
       `<line x1="14" y1="128" x2="130" y2="128" stroke="#3A3A3C" stroke-width="1"/>`,
       chart,
@@ -224,7 +251,7 @@ function renderBackground(opts: RenderOptions): string {
       BG,
       `<path d="${areaPath(pts, 144)}" fill="${color}" fill-opacity="0.28"/>`,
       `<path d="${linePath(pts)}" fill="none" stroke="${color}" stroke-width="2.5"/>`,
-      valueText(pct, 60, pct >= 100 ? 40 : 46, '#FFFFFF'),
+      valueText(displayText(opts, pct), 60, 46, '#FFFFFF'),
       subText(opts, 88, color),
     ].join(''),
   );

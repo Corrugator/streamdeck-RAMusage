@@ -23,6 +23,8 @@ export type NetworkRenderOptions = {
   bits: boolean;
   label: string;
   colors: NetworkColors;
+  /** Glyphs marking the two directions; defaults to ↓ / ↑. */
+  arrows?: { down: string; up: string };
   /** Rate history in bytes per second, oldest first. */
   downHistory: number[];
   upHistory: number[];
@@ -92,6 +94,7 @@ function chart(
 /** Builds the 144×144 network key image (data URI). */
 export function renderNetworkKey(opts: NetworkRenderOptions): string {
   const { colors, mode } = opts;
+  const arrows = opts.arrows ?? { down: '↓', up: '↑' };
   const hasGraph = opts.graph !== 'off' && opts.downHistory.length >= 2;
   const layers: string[] = [BG];
 
@@ -109,13 +112,13 @@ export function renderNetworkKey(opts: NetworkRenderOptions): string {
         chart(toPercent(opts.downHistory, scale), colors.down, opts.graph, true, yTop, yBot),
         // Upload bars would hide the download bars, so upload is always a line.
         chart(toPercent(opts.upHistory, scale), colors.up, 'line', false, yTop, yBot),
-        rateRow('↓', opts.down, 46, 24, opts, colors.down),
-        rateRow('↑', opts.up, 73, 24, opts, colors.up),
+        rateRow(arrows.down, opts.down, 46, 24, opts, colors.down),
+        rateRow(arrows.up, opts.up, 73, 24, opts, colors.up),
       );
     } else {
       layers.push(
-        rateRow('↓', opts.down, 60, 28, opts, colors.down),
-        rateRow('↑', opts.up, 100, 28, opts, colors.up),
+        rateRow(arrows.down, opts.down, 60, 28, opts, colors.down),
+        rateRow(arrows.up, opts.up, 100, 28, opts, colors.up),
       );
     }
     return svgWrap(layers.join(''));
@@ -138,7 +141,7 @@ export function renderNetworkKey(opts: NetworkRenderOptions): string {
   }
   layers.push(
     `<text x="72" y="${valueY}" text-anchor="middle" dominant-baseline="central" font-family="${FONT}" font-size="${value.length > 3 ? 36 : 42}" font-weight="700" fill="${color}">${value}</text>`,
-    `<text x="72" y="${unitY}" text-anchor="middle" dominant-baseline="central" font-family="${FONT}" font-size="15" font-weight="600" fill="#D0D0D2">${isDown ? '↓' : '↑'} ${unit}</text>`,
+    `<text x="72" y="${unitY}" text-anchor="middle" dominant-baseline="central" font-family="${FONT}" font-size="15" font-weight="600" fill="#D0D0D2">${isDown ? arrows.down : arrows.up} ${unit}</text>`,
   );
   return svgWrap(layers.join(''));
 }

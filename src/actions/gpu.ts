@@ -1,7 +1,7 @@
 import { action } from '@elgato/streamdeck';
 import { CommonSettings, MetricAction, Sample } from './metric-action';
 import { readGpuStats } from '../gpu';
-import { formatBytes } from '../render';
+import { formatBytes, Thresholds } from '../render';
 
 type GpuSettings = CommonSettings & {
   showMemory?: boolean;
@@ -13,6 +13,10 @@ export class GpuAction extends MetricAction<GpuSettings> {
 
   protected defaultLabel(): string {
     return 'GPU';
+  }
+
+  protected defaultThresholds(): Thresholds {
+    return { warn: 60, crit: 85 };
   }
 
   protected applyOwnSettings(s: GpuSettings): boolean {

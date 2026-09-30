@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 144 144">
+  <!-- Monochrome action-list icon: white strokes, transparent background. -->
+  <rect x="18" y="34" width="108" height="76" rx="12" fill="none" stroke="#FFFFFF" stroke-width="6"/>
+  <line x1="18" y1="80" x2="126" y2="80" stroke="#FFFFFF" stroke-width="6"/>
+  <rect x="32" y="48" width="44" height="18" rx="4" fill="#FFFFFF"/>
+  <rect x="80" y="48" width="18" height="18" rx="4" fill="#FFFFFF"/>
+  <circle cx="108" cy="95" r="6" fill="#FFFFFF"/>
+</svg>

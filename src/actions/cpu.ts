@@ -1,5 +1,6 @@
 import { action } from '@elgato/streamdeck';
 import { CommonSettings, MetricAction, Sample } from './metric-action';
+import { Thresholds } from '../render';
 import { formatLoad, readCpuUsage } from '../cpu';
 
 type CpuSettings = CommonSettings & {
@@ -12,6 +13,10 @@ export class CpuAction extends MetricAction<CpuSettings> {
 
   protected defaultLabel(): string {
     return 'CPU';
+  }
+
+  protected defaultThresholds(): Thresholds {
+    return { warn: 60, crit: 85 };
   }
 
   protected applyOwnSettings(s: CpuSettings): boolean {

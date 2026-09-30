@@ -1,13 +1,14 @@
 {
   "name": "com.corrugator.systemusage",
-  "version": "1.1.0",
-  "description": "Stream Deck plugin showing macOS memory pressure and CPU usage as colored percentages",
+  "version": "1.2.0",
+  "description": "Stream Deck plugin showing macOS memory, CPU, GPU, temperature, fans, battery, disk and network stats on keys",
   "type": "module",
   "scripts": {
     "build": "rollup -c",
+    "build:native": "sh scripts/build-native.sh",
     "watch": "rollup -c -w",
     "validate": "npx @elgato/cli validate com.corrugator.systemusage.sdPlugin",
-    "pack": "npm run build && npx @elgato/cli pack -f -o dist com.corrugator.systemusage.sdPlugin"
+    "pack": "npm run build:native && npm run build && npx @elgato/cli pack -f -o dist com.corrugator.systemusage.sdPlugin"
   },
   "keywords": [
     "streamdeck",
@@ -15,7 +16,13 @@
     "cpu",
     "memory",
     "ram",
-    "macos"
+    "macos",
+    "gpu",
+    "network",
+    "temperature",
+    "fan",
+    "battery",
+    "disk"
   ],
   "author": "Corrugator",
   "license": "ISC",

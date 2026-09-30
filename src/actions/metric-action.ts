@@ -21,7 +21,15 @@ export type CommonSettings = PollingSettings & {
   red?: string;
 };
 
-export type Sample = { value: number; subline?: string };
+export type Sample = {
+  /** 0–100, drives ring, color and graph. */
+  value: number;
+  /** Replaces the "NN%" text, e.g. "46°" or "2316". */
+  text?: string;
+  subline?: string;
+  /** Fixed color instead of the threshold color (e.g. gray for "no battery"). */
+  color?: string;
+};
 
 const MAX_HISTORY = 30;
 const GRAPH_STYLES: GraphStyle[] = [
@@ -50,17 +58,28 @@ export abstract class MetricAction<S extends CommonSettings> extends PollingActi
   /** Apply subclass-specific settings; return true to reset the history. */
   protected abstract applyOwnSettings(settings: S): boolean;
 
+  /** Thresholds used when the user hasn't set any. */
+  protected defaultThresholds(): Thresholds {
+    return DEFAULT_THRESHOLDS;
+  }
+
+  /** True when low values are bad (battery). */
+  protected invertColors(): boolean {
+    return false;
+  }
+
   protected resetHistory(): void {
     this.history = [];
   }
 
   protected async render(): Promise<string> {
-    const { value, subline } = await this.sample();
+    const { value, text, subline, color } = await this.sample();
     this.history.push(value);
     if (this.history.length > MAX_HISTORY) this.history.shift();
     return renderKeyImage({
       value,
-      color: colorForValue(value, this.thresholds, this.palette),
+      text,
+      color: color ?? colorForValue(value, this.thresholds, this.palette, this.invertColors()),
       label: this.label,
       subline,
       history: this.graphStyle !== 'off' ? this.history : undefined,
@@ -76,11 +95,13 @@ export abstract class MetricAction<S extends CommonSettings> extends PollingActi
           ? 'off'
           : 'sparkline';
 
+    // Empty PI fields arrive as undefined; Number(undefined) is NaN → default.
     const warn = Number(s.warn);
     const crit = Number(s.crit);
+    const defaults = this.defaultThresholds();
     this.thresholds = {
-      warn: Number.isFinite(warn) ? warn : DEFAULT_THRESHOLDS.warn,
-      crit: Number.isFinite(crit) ? crit : DEFAULT_THRESHOLDS.crit,
+      warn: s.warn != null && Number.isFinite(warn) ? warn : defaults.warn,
+      crit: s.crit != null && Number.isFinite(crit) ? crit : defaults.crit,
     };
     this.palette = {
       green: s.green || DEFAULT_PALETTE.green,

@@ -1,7 +1,7 @@
 {
   "$schema": "https://schemas.elgato.com/streamdeck/plugins/manifest.json",
   "Name": "System Usage",
-  "Version": "1.1.0.0",
+  "Version": "1.2.0.0",
   "Author": "Corrugator",
   "UUID": "com.corrugator.systemusage",
   "Actions": [
@@ -68,12 +68,92 @@
         }
       ],
       "PropertyInspectorPath": "ui/network-pi.html"
+    },
+    {
+      "Name": "Temperature",
+      "UUID": "com.corrugator.systemusage.temperature",
+      "Icon": "imgs/actions/temperature/icon",
+      "Tooltip": "Shows the SoC/CPU, battery or SSD temperature with fan speed or power.",
+      "Controllers": [
+        "Keypad"
+      ],
+      "States": [
+        {
+          "Image": "imgs/actions/temperature/key",
+          "TitleAlignment": "bottom"
+        }
+      ],
+      "PropertyInspectorPath": "ui/temperature-pi.html"
+    },
+    {
+      "Name": "Fan",
+      "UUID": "com.corrugator.systemusage.fan",
+      "Icon": "imgs/actions/fan/icon",
+      "Tooltip": "Shows fan speed in RPM, with the ring as share of maximum speed.",
+      "Controllers": [
+        "Keypad"
+      ],
+      "States": [
+        {
+          "Image": "imgs/actions/fan/key",
+          "TitleAlignment": "bottom"
+        }
+      ],
+      "PropertyInspectorPath": "ui/fan-pi.html"
+    },
+    {
+      "Name": "Battery",
+      "UUID": "com.corrugator.systemusage.battery",
+      "Icon": "imgs/actions/battery/icon",
+      "Tooltip": "Shows battery charge with time remaining, power or health.",
+      "Controllers": [
+        "Keypad"
+      ],
+      "States": [
+        {
+          "Image": "imgs/actions/battery/key",
+          "TitleAlignment": "bottom"
+        }
+      ],
+      "PropertyInspectorPath": "ui/battery-pi.html"
+    },
+    {
+      "Name": "Disk",
+      "UUID": "com.corrugator.systemusage.disk",
+      "Icon": "imgs/actions/disk/icon",
+      "Tooltip": "Shows used disk space of a volume as a colored percentage.",
+      "Controllers": [
+        "Keypad"
+      ],
+      "States": [
+        {
+          "Image": "imgs/actions/disk/key",
+          "TitleAlignment": "bottom"
+        }
+      ],
+      "PropertyInspectorPath": "ui/disk-pi.html"
+    },
+    {
+      "Name": "Disk I/O",
+      "UUID": "com.corrugator.systemusage.diskio",
+      "Icon": "imgs/actions/diskio/icon",
+      "Tooltip": "Shows disk read and write rates with a history graph.",
+      "Controllers": [
+        "Keypad"
+      ],
+      "States": [
+        {
+          "Image": "imgs/actions/diskio/key",
+          "TitleAlignment": "bottom"
+        }
+      ],
+      "PropertyInspectorPath": "ui/diskio-pi.html"
     }
   ],
   "Category": "System Usage",
   "CategoryIcon": "imgs/plugin/category",
   "CodePath": "bin/plugin.js",
-  "Description": "Shows macOS memory, CPU and GPU usage on Stream Deck keys as percentages that turn green, yellow, or red, plus live network download/upload rates, with optional detail lines and history graphs.",
+  "Description": "Shows macOS system stats on Stream Deck keys: memory, CPU, GPU, temperature, fans, battery and disk as colored percentages, plus network and disk I/O rates, with optional detail lines and history graphs.",
   "Icon": "imgs/plugin/icon",
   "SDKVersion": 3,
   "Software": {
